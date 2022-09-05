@@ -14,13 +14,13 @@ import android.os.Handler
 import android.util.Log
 import android.util.Range
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import kotlin.experimental.and
 
 class DepthCamera<T>(
   private val context: T,
   private val shouldUseDynamicRanging: () -> Boolean,
-  private val setRangeText: (String) -> Unit
+  private val setRangeText: (String) -> Unit,
+  private val setStatusText: (String) -> Unit,
 ) : CameraDevice.StateCallback(), ImageReader.OnImageAvailableListener
   where T : Context, T : DepthCameraImageListener {
   var isOpen: Boolean = false
@@ -45,10 +45,20 @@ class DepthCamera<T>(
   }
 
   fun open() {
+    if (isOpen) {
+      return
+    }
+
+    Log.i(TAG, "Opening camera session.")
+
+    isOpen = true
+
     if (ActivityCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
       Log.e(TAG, "Camera permission is not granted!")
       return
     }
+
+    setStatusText("Camera is starting...")
 
     if (handler == null) {
       Log.e(TAG, "Camera thread handler is null!")
@@ -56,10 +66,10 @@ class DepthCamera<T>(
       return
     }
 
-    isOpen = true
-
     imageReader.setOnImageAvailableListener(this, handler)
     cameraManager.openCamera(cameraId, this, null)
+
+    Log.i(TAG, "Camera session open.")
   }
 
   private fun getDepthCameraId(): String? {
@@ -90,18 +100,6 @@ class DepthCamera<T>(
     requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(5, 5))
     requestBuilder.addTarget(imageReader.surface)
 
-    /*
-    camera.createCaptureSession(listOf(imageReader.surface), object : CameraCaptureSession.StateCallback() {
-      override fun onConfigured(session: CameraCaptureSession) {
-        onCaptureSessionConfigured(session)
-      }
-
-      override fun onConfigureFailed(session: CameraCaptureSession) {
-        Log.e(TAG, "Failed to configure the Depth Camera!")
-      }
-    }, null)
-    */
-
     camera.createCaptureSession(
       SessionConfiguration(
         SessionConfiguration.SESSION_REGULAR,
@@ -123,11 +121,19 @@ class DepthCamera<T>(
   }
 
   fun close() {
+    if (!isOpen) {
+      return
+    }
+
+    Log.i(TAG, "Closing capture session.")
+
     isOpen = false
 
     captureSession?.abortCaptures()
     captureSession?.stopRepeating()
     captureSession?.close()
+
+    Log.i(TAG, "Capture session closed.")
   }
 
   override fun onDisconnected(camera: CameraDevice) {
@@ -155,6 +161,8 @@ class DepthCamera<T>(
   }
 
   override fun onImageAvailable(reader: ImageReader?) {
+    context.mainExecutor.execute { setStatusText("") }
+
     val image = reader!!.acquireNextImage()
 
     if (image != null && image.format == ImageFormat.DEPTH16) {

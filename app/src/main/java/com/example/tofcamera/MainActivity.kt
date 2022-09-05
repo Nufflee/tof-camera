@@ -32,23 +32,27 @@ import java.lang.reflect.Modifier
     - Switch between 480p and 240p
 */
 
-class MainActivity : AppCompatActivity(), DepthCameraImageListener {
+class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener {
   private val TAG = "camera-tof";
 
   private lateinit var textureView: TextureView
   private lateinit var cameraThread: HandlerThread
   private lateinit var camera: DepthCamera<MainActivity>
+  private var idleMonitor: AccelerometerIdleMonitor<MainActivity> = AccelerometerIdleMonitor(this)
 
-  private lateinit var _bitmapMatrix: Matrix
+  private val bitmapMatrix: Matrix by lazy {
+    val matrix = Matrix()
+    val centerX = textureView.width / 2
+    val centerY = textureView.height / 2
+    val bufferWidth = 480
+    val bufferHeight = 640
+    val bufferRect = RectF(0f, 0f, bufferWidth.toFloat(), bufferHeight.toFloat())
+    val viewRect = RectF(0f, 0f, textureView.width.toFloat(), textureView.height.toFloat())
+    matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
+    //matrix.postRotate(90f, centerX.toFloat(), centerY.toFloat())
 
-  private val bitmapMatrix: Matrix
-    get() {
-      if (!::_bitmapMatrix.isInitialized) {
-        _bitmapMatrix = createBitmapMatrix(textureView)
-      }
-
-      return _bitmapMatrix
-    }
+    matrix
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -67,29 +71,16 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener {
 
     val dynamicRangeCheckbox = findViewById<CheckBox>(R.id.dynamicRangeCheckbox)
     val rangeTextView = findViewById<TextView>(R.id.rangeTextView)
+    val statusTextView = findViewById<TextView>(R.id.cameraStatusTextView)
 
-    camera = DepthCamera(this, { dynamicRangeCheckbox.isChecked }, { text -> rangeTextView.text = text })
-
-    setupCameraThread()
-
+    camera = DepthCamera(this, dynamicRangeCheckbox::isChecked, rangeTextView::setText, statusTextView::setText)
+    startCameraThread()
     camera.open()
+
+    idleMonitor.start()
   }
 
-  private fun createBitmapMatrix(view: TextureView): Matrix {
-    val matrix = Matrix()
-    val centerX = view.width / 2
-    val centerY = view.height / 2
-    val bufferWidth = 480
-    val bufferHeight = 640
-    val bufferRect = RectF(0f, 0f, bufferWidth.toFloat(), bufferHeight.toFloat())
-    val viewRect = RectF(0f, 0f, view.width.toFloat(), view.height.toFloat())
-    matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
-    //matrix.postRotate(90f, centerX.toFloat(), centerY.toFloat())
-
-    return matrix
-  }
-
-  private fun setupCameraThread() {
+  private fun startCameraThread() {
     cameraThread = HandlerThread("Camera")
     cameraThread.start()
 
@@ -180,20 +171,23 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener {
   override fun onResume() {
     super.onResume()
 
+    stopIdle()
+    idleMonitor.start()
+  }
+
+  private fun stopIdle() {
     if (!cameraThread.isAlive) {
-      setupCameraThread()
+      startCameraThread()
     }
 
     if (!camera.isOpen) {
       camera.open()
     }
 
-    Log.i(TAG, "onResume")
+    Log.i(TAG, "Stopped idling.")
   }
 
-  override fun onStop() {
-    super.onStop()
-
+  private fun startIdle() {
     if (camera.isOpen) {
       camera.close()
     }
@@ -202,7 +196,14 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener {
       cameraThread.quitSafely()
     }
 
-    Log.i(TAG, "onStop")
+    Log.i(TAG, "Started idling.")
+  }
+
+  override fun onStop() {
+    super.onStop()
+
+    startIdle()
+    idleMonitor.stop()
   }
 
   override fun onPause() {
@@ -215,5 +216,13 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener {
     val canvas = textureView.lockCanvas()!!
     canvas.drawBitmap(bitmap, bitmapMatrix, null)
     textureView.unlockCanvasAndPost(canvas)
+  }
+
+  override fun onIdle() {
+    startIdle()
+  }
+
+  override fun onIdleStop() {
+    stopIdle()
   }
 }
