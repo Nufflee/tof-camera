@@ -2,10 +2,7 @@ package com.example.tofcamera
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.ImageFormat
-import android.graphics.Matrix
-import android.graphics.RectF
+import android.graphics.*
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
@@ -22,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.lang.reflect.Modifier
+import kotlin.math.round
 
 /*
   TODO:
@@ -75,6 +73,7 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
     val statusTextView = findViewById<TextView>(R.id.cameraStatusTextView)
 
     camera = DepthCamera(this, dynamicRangeCheckbox::isChecked, rangeTextView::setText, statusTextView::setText)
+
     startCameraThread()
     camera.open()
 
@@ -105,48 +104,69 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
 
     for (cameraId in cameraManager.cameraIdList) {
       val chars = cameraManager.getCameraCharacteristics(cameraId)
-
       val builder = StringBuilder()
 
-      builder.appendln("Camera ID: $cameraId:")
+      builder.appendLine()
+      builder.appendLine("Camera $cameraId:")
 
-      builder.appendln("\tFacing: ${getFieldNameByValue(CameraMetadata::class.java, chars.get(CameraCharacteristics.LENS_FACING), Modifier.PUBLIC or Modifier.STATIC)}")
-      builder.appendln("\tPhysical size: ${chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)}mm")
-      builder.appendln("\tActive pixel array size: ${chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)}")
-      builder.appendln("\tTotal pixel array size: ${chars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)}")
+      val facing = chars.get(CameraCharacteristics.LENS_FACING)
+      builder.appendLine(
+        "\tFacing: ${
+          when (facing) {
+            CameraMetadata.LENS_FACING_FRONT -> "Front"
+            CameraMetadata.LENS_FACING_BACK -> "Back"
+            CameraMetadata.LENS_FACING_EXTERNAL -> "External"
+            else -> throw IllegalArgumentException("Unknown lens facing: $facing")
+          }
+        }"
+      )
+
+      builder.appendLine("\tPhysical size: ${chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)} mm")
+
+      val activePixelArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) as Rect;
+      builder.appendLine("\tActive pixel array size: ${activePixelArray.width()}x${activePixelArray.height()}")
+
+      builder.appendLine("\tTotal pixel array size: ${chars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)}")
 
       val capabilities = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
+      builder.appendLine(
+        "\tCapabilities: ${
+          capabilities!!.joinToString(", ") { capability ->
+            val prefix = "REQUEST_AVAILABLE_CAPABILITIES_"
 
-      val capabilitiesString = capabilities!!.map { capability ->
-        val prefix = "REQUEST_AVAILABLE_CAPABILITIES_"
+            CameraMetadata::class.java.declaredFields.find {
+              it.name.startsWith(prefix) && it.get(this) == capability
+            }!!.name.removePrefix(prefix)
+          }
+        }"
+      )
 
-        CameraMetadata::class.java.declaredFields.find {
-          it.name.startsWith(prefix) && it.get(this) == capability
-        }!!.name.removePrefix(prefix)
-      }
+      val configurationMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!
+      builder.appendLine(
+        "\tFormats: ${
+          configurationMap.outputFormats.joinToString(", ") {
+            getFieldNameByValue(
+              ImageFormat::class.java,
+              it,
+              Modifier.PUBLIC or Modifier.STATIC
+            )!!
+          }
+        }"
+      )
 
-      builder.appendln("\tCapabilities: $capabilitiesString")
+      val getResolutionsForFormat = { format: Int ->
+        val resolutions = configurationMap.getOutputSizes(format)
 
-      val fpsRanges = chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
-
-      builder.appendln("\tFPS ranges: ${fpsRanges!!.joinToString(", ")}")
-
-      val configurationMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-
-      val resolutionForFormat = { format: Int ->
-        val resolutions = configurationMap!!.getOutputSizes(format)
-
-        "\tResolutions (${getFieldNameByValue(ImageFormat::class.java, format, Modifier.PUBLIC or Modifier.STATIC)}): ${resolutions.joinToString(", ") {
-          "$it (${1 / (configurationMap.getOutputMinFrameDuration(format, it) / 1e9)} FPS)"
-        }
+        "\tResolutions (${getFieldNameByValue(ImageFormat::class.java, format, Modifier.PUBLIC or Modifier.STATIC)}): ${
+          resolutions.joinToString(", ") { "$it (${round(1 / (configurationMap.getOutputMinFrameDuration(format, it) / 1e9))} FPS)" }
         }"
       }
 
       if (capabilities.contains(CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT)) {
-        builder.appendln(resolutionForFormat(ImageFormat.DEPTH16))
+        builder.appendLine(getResolutionsForFormat(ImageFormat.DEPTH16))
       } else {
-        builder.appendln(resolutionForFormat(ImageFormat.JPEG))
-        builder.appendln(resolutionForFormat(ImageFormat.YUV_420_888))
+        builder.appendLine(getResolutionsForFormat(ImageFormat.JPEG))
+        builder.appendLine(getResolutionsForFormat(ImageFormat.YUV_420_888))
       }
 
       Log.i(TAG, builder.toString())
@@ -215,7 +235,9 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
 
   override fun onNewImage(bitmap: Bitmap) {
     val canvas = textureView.lockCanvas()!!
+
     canvas.drawBitmap(bitmap, bitmapMatrix, null)
+
     textureView.unlockCanvasAndPost(canvas)
   }
 
