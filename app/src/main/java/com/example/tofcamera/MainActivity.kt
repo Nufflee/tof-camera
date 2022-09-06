@@ -34,6 +34,8 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
   private val TAG = "camera-tof";
 
   private lateinit var textureView: TextureView
+  private lateinit var statusTextView: TextView
+
   private lateinit var cameraThread: HandlerThread
   private lateinit var camera: DepthCamera<MainActivity>
   private lateinit var idleMonitor: AccelerometerIdleMonitor<MainActivity>
@@ -70,7 +72,7 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
 
     val dynamicRangeCheckbox = findViewById<CheckBox>(R.id.dynamicRangeCheckbox)
     val rangeTextView = findViewById<TextView>(R.id.rangeTextView)
-    val statusTextView = findViewById<TextView>(R.id.cameraStatusTextView)
+    statusTextView = findViewById(R.id.cameraStatusTextView)
 
     camera = DepthCamera(this, dynamicRangeCheckbox::isChecked, rangeTextView::setText, statusTextView::setText)
 
@@ -144,13 +146,7 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
       val configurationMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!
       builder.appendLine(
         "\tFormats: ${
-          configurationMap.outputFormats.joinToString(", ") {
-            getFieldNameByValue(
-              ImageFormat::class.java,
-              it,
-              Modifier.PUBLIC or Modifier.STATIC
-            )!!
-          }
+          configurationMap.outputFormats.joinToString(", ") { getFieldNameByValue(ImageFormat::class.java, it, Modifier.PUBLIC or Modifier.STATIC)!! }
         }"
       )
 
@@ -196,6 +192,13 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
     idleMonitor.start()
   }
 
+  override fun onStop() {
+    super.onStop()
+
+    startIdle()
+    idleMonitor.stop()
+  }
+
   private fun stopIdle() {
     if (!cameraThread.isAlive) {
       startCameraThread()
@@ -217,27 +220,20 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
       cameraThread.quitSafely()
     }
 
+    //socket.close()
+
+    statusTextView.text = "Camera paused due to inactivity..."
+
+    val canvas = textureView.lockCanvas()!!
+    canvas.drawARGB(255, 0, 0, 0)
+    textureView.unlockCanvasAndPost(canvas)
+
     Log.i(TAG, "Started idling.")
-  }
-
-  override fun onStop() {
-    super.onStop()
-
-    startIdle()
-    idleMonitor.stop()
-  }
-
-  override fun onPause() {
-    super.onPause()
-
-    Log.i(TAG, "onPause")
   }
 
   override fun onNewImage(bitmap: Bitmap) {
     val canvas = textureView.lockCanvas()!!
-
     canvas.drawBitmap(bitmap, bitmapMatrix, null)
-
     textureView.unlockCanvasAndPost(canvas)
   }
 
