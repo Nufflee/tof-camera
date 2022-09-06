@@ -38,18 +38,17 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
   private lateinit var textureView: TextureView
   private lateinit var cameraThread: HandlerThread
   private lateinit var camera: DepthCamera<MainActivity>
-  private var idleMonitor: AccelerometerIdleMonitor<MainActivity> = AccelerometerIdleMonitor(this)
+  private lateinit var idleMonitor: AccelerometerIdleMonitor<MainActivity>
 
+  // Matrix that scales the recorded frame to the size of the textureView.
   private val bitmapMatrix: Matrix by lazy {
     val matrix = Matrix()
-    val centerX = textureView.width / 2
-    val centerY = textureView.height / 2
     val bufferWidth = 480
     val bufferHeight = 640
     val bufferRect = RectF(0f, 0f, bufferWidth.toFloat(), bufferHeight.toFloat())
     val viewRect = RectF(0f, 0f, textureView.width.toFloat(), textureView.height.toFloat())
+
     matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
-    //matrix.postRotate(90f, centerX.toFloat(), centerY.toFloat())
 
     matrix
   }
@@ -60,6 +59,8 @@ class MainActivity : AppCompatActivity(), DepthCameraImageListener, IdleListener
     setSupportActionBar(findViewById(R.id.toolbar))
 
     textureView = findViewById(R.id.textureView)
+
+    idleMonitor = AccelerometerIdleMonitor(this)
 
     printCameraInfo()
 
